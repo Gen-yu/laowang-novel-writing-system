@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>小说辅助系统</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <!-- 顶部导航栏 -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-seal">老王</span>
+      <span class="brand-name">小说辅助系统</span>
+    </div>
+    <nav class="nav">
+      <button class="nav-btn active" data-page="writing">写 作</button>
+      <button class="nav-btn" data-page="resources">资 料</button>
+      <button class="nav-btn" data-page="image">生 图</button>
+    </nav>
+  </header>
+
+  <main class="main">
+    <!-- ============ 写作页 ============ -->
+    <section id="page-writing" class="page active">
+      <div class="writing-layout">
+        <!-- 左侧：阅读区（已定稿内容，对 AI 只读） -->
+        <div class="pane reading-pane">
+          <div class="pane-header">
+            <h2>阅读区</h2>
+            <span class="pane-hint">已定稿 · 划选文字可放回编辑区</span>
+          </div>
+          <div id="reading-area" class="reading-area paper" tabindex="0">
+            <p class="reading-empty">尚无定稿内容。在右侧编辑区写作后，点击「确认归稿」归入此处。</p>
+          </div>
+        </div>
+
+        <!-- 右侧：编辑区（对 AI 读写均可） -->
+        <div class="pane editor-pane">
+          <div class="pane-header">
+            <h2>编辑区</h2>
+            <input id="chapter-title" class="chapter-title" type="text" placeholder="章节名（用于总结存档）" />
+          </div>
+          <textarea id="editor" class="editor paper" placeholder="在此处写作，或写入简要大纲后使用「AI 补全」扩写为正式文段……"></textarea>
+          <div class="editor-actions">
+            <button id="btn-confirm" class="btn btn-primary">确认归稿</button>
+            <button id="btn-hint" class="btn">AI 提示</button>
+            <button id="btn-complete" class="btn">AI 补全</button>
+            <button id="btn-summarize" class="btn">总结本章</button>
+          </div>
+          <div id="ai-output" class="ai-output paper hidden">
+            <div class="ai-output-header">
+              <span id="ai-output-title">AI 输出</span>
+              <button id="ai-output-close" class="btn-icon" title="关闭">×</button>
+            </div>
+            <div id="ai-output-body" class="ai-output-body"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 划选后浮现的"放回编辑区"按钮 -->
+      <button id="btn-recall" class="btn-recall hidden">放回编辑区</button>
+    </section>
+
+    <!-- ============ 资料页 ============ -->
+    <section id="page-resources" class="page">
+      <div class="resources-layout">
+        <aside class="pane explorer-pane">
+          <div class="pane-header">
+            <h2>资料库</h2>
+            <div class="explorer-actions">
+              <button id="btn-new-file" class="btn btn-sm">新建</button>
+              <button id="btn-refresh-tree" class="btn btn-sm">刷新</button>
+            </div>
+          </div>
+          <div id="rag-tree" class="rag-tree paper"></div>
+        </aside>
+        <div class="pane resource-view-pane">
+          <div class="pane-header">
+            <h2 id="resource-title">未选择文件</h2>
+            <button id="btn-save-file" class="btn btn-primary btn-sm" disabled>保存</button>
+          </div>
+          <textarea id="resource-editor" class="resource-editor paper" placeholder="在左侧选择资料文件进行查看与编辑……" disabled></textarea>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 生图页 ============ -->
+    <section id="page-image" class="page">
+      <div class="image-layout">
+        <div class="pane image-form-pane">
+          <div class="pane-header"><h2>提示词</h2></div>
+          <textarea id="image-prompt" class="image-prompt paper" placeholder="输入图片描述，例如：雨夜的古街小巷，一盏昏黄的灯笼……"></textarea>
+          <div class="editor-actions">
+            <button id="btn-optimize" class="btn">优化提示词</button>
+            <button id="btn-generate" class="btn btn-primary">生成图片</button>
+          </div>
+          <div class="pane-header" style="margin-top:18px"><h2>优化结果</h2></div>
+          <textarea id="image-optimized" class="image-prompt paper small" placeholder="优化后的提示词会显示在这里，可再次修改后用于生成。"></textarea>
+        </div>
+        <div class="pane image-result-pane">
+          <div class="pane-header"><h2>生成结果</h2></div>
+          <div id="image-result" class="image-result paper">
+            <p class="image-empty">生成的图片将展示在这里</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/js/app.js"></script>
+  <script src="/js/writing.js"></script>
+  <script src="/js/resources.js"></script>
+  <script src="/js/image.js"></script>
+</body>
+</html>

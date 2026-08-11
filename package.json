@@ -1,0 +1,14 @@
+{
+  "name": "novel-writing-system",
+  "version": "1.0.0",
+  "description": "小说辅助系统：AI 提示与补全写作、RAG 资料管理、AI 生图",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}
