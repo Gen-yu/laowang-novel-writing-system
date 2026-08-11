@@ -13,6 +13,11 @@
       <span class="brand-seal">老王</span>
       <span class="brand-name">小说辅助系统</span>
     </div>
+    <div class="book-controls">
+      <label for="book-select">当前书籍</label>
+      <select id="book-select" class="book-select" aria-label="当前编辑书籍"></select>
+      <button id="btn-new-book" class="btn btn-sm">新建书籍</button>
+    </div>
     <nav class="nav">
       <button class="nav-btn active" data-page="writing">写 作</button>
       <button class="nav-btn" data-page="resources">资 料</button>
@@ -39,7 +44,7 @@
         <div class="pane editor-pane">
           <div class="pane-header">
             <h2>编辑区</h2>
-            <input id="chapter-title" class="chapter-title" type="text" placeholder="章节名（用于总结存档）" />
+            <input id="chapter-title" class="chapter-title" type="text" placeholder="章节标题（留空自动编号）" />
           </div>
           <textarea id="editor" class="editor paper" placeholder="在此处写作，或写入简要大纲后使用「AI 补全」扩写为正式文段……"></textarea>
           <div class="editor-actions">
@@ -69,6 +74,7 @@
           <div class="pane-header">
             <h2>资料库</h2>
             <div class="explorer-actions">
+              <button id="btn-volume-summary" class="btn btn-sm">分卷总结</button>
               <button id="btn-new-file" class="btn btn-sm">新建</button>
               <button id="btn-refresh-tree" class="btn btn-sm">刷新</button>
             </div>
@@ -107,6 +113,24 @@
       </div>
     </section>
   </main>
+
+  <div id="volume-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="volume-modal-title">
+    <div class="modal-card paper">
+      <div class="modal-header">
+        <h2 id="volume-modal-title">生成分卷总结</h2>
+        <button id="btn-close-volume" class="btn-icon" title="关闭">×</button>
+      </div>
+      <label class="form-label" for="volume-number">卷号</label>
+      <input id="volume-number" class="modal-input" type="number" min="1" />
+      <p id="volume-warning" class="modal-warning hidden"></p>
+      <div class="form-label">选择连续章节</div>
+      <div id="volume-chapters" class="chapter-checklist"></div>
+      <div class="modal-actions">
+        <button id="btn-cancel-volume" class="btn">取消</button>
+        <button id="btn-generate-volume" class="btn btn-primary">生成总结</button>
+      </div>
+    </div>
+  </div>
 
   <div id="toast" class="toast hidden"></div>
 

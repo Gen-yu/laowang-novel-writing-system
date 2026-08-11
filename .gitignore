@@ -4,4 +4,10 @@ node_modules/
 dist/
 build/
 *.log
+
+# RAG 中只上传示例书籍，其他书籍保留在本地
+RAG/*/
+!RAG/example/
+!RAG/example/**
+
 基本需求.md

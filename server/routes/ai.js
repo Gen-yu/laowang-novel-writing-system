@@ -1,105 +1,218 @@
 /**
- * AI 写作路由：提示 / 补全 / 本章总结
- *
- * 每个功能对应 skills/ 下的一个 agent skill：
- *   writing-hint      -> AI 提示
- *   writing-complete  -> AI 补全
- * skill 正文为空时使用下方内置默认提示词。
+ * AI 写作路由：提示、补全、章节总结与分卷总结。
+ * 每项功能都从 skills/<name>/SKILL.md 读取纯文本伪 skill。
  */
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const { chat } = require('../services/llm');
-const { resolvePrompt } = require('../services/skillLoader');
-const { RAG_DIR } = require('../config');
+const { requirePrompt } = require('../services/skillLoader');
+const {
+  atomicWrite,
+  buildChapterTitle,
+  ensureBookStructure,
+  getChapterSummaries,
+  getVolumes,
+  resolveBookPath,
+  resolveBookRoot,
+} = require('../services/bookStorage');
 
 const router = express.Router();
 
-const DEFAULT_PROMPTS = {
-  hint: [
-    '你是一位资深小说创作助手。用户会给你一段正在创作的小说内容（可能包含已完成正文与当前草稿）。',
-    '请给出 3~5 条具体、可执行的写作提示，帮助用户推进剧情、丰富细节或改善文笔。',
-    '提示应简短明确，分条列出，不要代写正文。',
-  ].join('\n'),
-  complete: [
-    '你是一位资深小说执笔助手。用户会给你已完成的正文（作为上下文）和编辑区中的简要大纲。',
-    '请把简要大纲扩写为正式的小说文段，风格与上下文保持一致，情节严格遵循大纲，不要擅自大幅改动设定。',
-    '只输出扩写后的正文，不要输出解释。',
-  ].join('\n'),
-  summarize: [
-    '你是一位小说剧情整理助手。请把用户给出的章节正文总结为简明扼要的剧情摘要，',
-    '包含：主要事件、出场人物、关键转折与悬念。控制在 200~400 字，直接输出摘要正文。',
-  ].join('\n'),
-};
+function requireExistingBook(book) {
+  const root = resolveBookRoot(book);
+  if (!fs.existsSync(root)) throw new Error('书籍不存在');
+  ensureBookStructure(book);
+}
 
-// AI 提示：阅读区（只读上下文）+ 编辑区（草稿）-> 写作提示
+function parseChapterSummaryOutput(text) {
+  const match = String(text || '').match(
+    /【章节总结】\s*([\s\S]*?)\s*【更新后术语】\s*([\s\S]+)$/
+  );
+  if (!match || !match[1].trim() || !match[2].trim()) {
+    throw new Error('章节总结伪 skill 输出格式不正确，正文已保存，原术语未修改');
+  }
+  return { summary: match[1].trim(), terminology: match[2].trim() };
+}
+
 router.post('/hint', async (req, res) => {
   try {
-    const { reading = '', draft = '' } = req.body || {};
-    const system = resolvePrompt('writing-hint', DEFAULT_PROMPTS.hint);
+    const { book, reading = '', draft = '' } = req.body || {};
+    requireExistingBook(book);
+    const system = requirePrompt('writing-hint');
     const user = [
+      `【当前书籍】\n${book}`,
       reading ? `【已完成正文】\n${reading}` : '',
       draft ? `【当前草稿】\n${draft}` : '',
-      '\n请给出写作提示。',
+      '请给出写作提示。',
     ].filter(Boolean).join('\n\n');
-    const hint = await chat(system, user);
-    res.json({ hint });
+    res.json({ hint: await chat(system, user) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// AI 补全：编辑区简要大纲 -> 正式文段
 router.post('/complete', async (req, res) => {
   try {
-    const { reading = '', outline = '' } = req.body || {};
+    const { book, reading = '', outline = '' } = req.body || {};
+    requireExistingBook(book);
     if (!outline.trim()) return res.status(400).json({ error: '编辑区大纲为空' });
-    const system = resolvePrompt('writing-complete', DEFAULT_PROMPTS.complete);
+    const system = requirePrompt('writing-complete');
     const user = [
+      `【当前书籍】\n${book}`,
       reading ? `【已完成正文】\n${reading}` : '',
       `【简要大纲】\n${outline}`,
-      '\n请把简要大纲扩写为正式文段。',
+      '请把简要大纲扩写为正式文段。',
     ].filter(Boolean).join('\n\n');
-    const text = await chat(system, user);
-    res.json({ text });
+    res.json({ text: await chat(system, user) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 本章总结：先归档章节正文，再生成摘要并存入独立的章节总结目录
 router.post('/summarize', async (req, res) => {
   try {
-    const { content = '', chapter = '' } = req.body || {};
+    const { book, content = '', chapter = '' } = req.body || {};
+    requireExistingBook(book);
     if (!content.trim()) return res.status(400).json({ error: '本章内容为空' });
 
-    const title = (chapter || '未命名章节').replace(/[\\/:*?"<>|]/g, '_').trim() || '未命名章节';
-    const bodyDir = path.join(RAG_DIR, 'plots', 'chapter-bodies');
-    const summaryDir = path.join(RAG_DIR, 'plots', 'chapter-summaries');
-    fs.mkdirSync(bodyDir, { recursive: true });
-    fs.mkdirSync(summaryDir, { recursive: true });
+    const { chapterNumber, chapterTitle } = buildChapterTitle(book, chapter);
+    const bodyPath = path.posix.join('plots', 'chapter-bodies', `${chapterTitle}.md`);
+    const summaryPath = path.posix.join('plots', 'chapter-summaries', `${chapterTitle}.md`);
+    const terminologyPath = path.posix.join('settings', '术语.md');
 
-    const bodyPath = path.posix.join('plots', 'chapter-bodies', `${title}.md`);
-    const summaryPath = path.posix.join('plots', 'chapter-summaries', `${title}.md`);
-
-    // 正文先落盘，避免 AI 总结失败时本章内容也未归档。
     fs.writeFileSync(
-      path.join(RAG_DIR, bodyPath),
-      `# ${title} · 章节正文\n\n${content.trim()}\n`,
+      resolveBookPath(book, bodyPath),
+      `# ${chapterTitle} · 章节正文\n\n${content.trim()}\n`,
       'utf8'
     );
 
-    const system = DEFAULT_PROMPTS.summarize;
-    const summary = await chat(system, `【章节正文】\n${content}`);
+    const terminologyFile = resolveBookPath(book, terminologyPath);
+    const existingTerminology = fs.existsSync(terminologyFile)
+      ? fs.readFileSync(terminologyFile, 'utf8').trim()
+      : '';
+    const system = requirePrompt('chapter-summary');
+    const output = await chat(system, [
+      `【当前书籍】\n${book}`,
+      `【章节标题】\n${chapterTitle}`,
+      `【已有术语】\n${existingTerminology || '（暂无）'}`,
+      `【章节正文】\n${content.trim()}`,
+    ].join('\n\n'));
+    const { summary, terminology } = parseChapterSummaryOutput(output);
+
     fs.writeFileSync(
-      path.join(RAG_DIR, summaryPath),
-      `# ${title} · 章节总结\n\n${summary}\n`,
+      resolveBookPath(book, summaryPath),
+      `# ${chapterTitle} · 章节总结\n\n${summary}\n`,
       'utf8'
     );
+    atomicWrite(terminologyFile, `${terminology}\n`);
 
-    res.json({ summary, bodyPath, summaryPath });
+    res.json({
+      summary,
+      chapterNumber,
+      chapterTitle,
+      bodyPath,
+      summaryPath,
+      terminologyPath,
+    });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = /为空|不存在|请选择|非法/.test(err.message) ? 400 : 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+router.get('/volume-summary/meta', (req, res) => {
+  try {
+    const { book } = req.query;
+    requireExistingBook(book);
+    const volumes = getVolumes(book);
+    const assigned = new Set();
+    volumes.forEach((volume) => {
+      if (!Number.isInteger(volume.startChapter) || !Number.isInteger(volume.endChapter)) return;
+      for (let number = volume.startChapter; number <= volume.endChapter; number += 1) assigned.add(number);
+    });
+    const chapters = getChapterSummaries(book).map((chapter) => ({
+      chapterNumber: chapter.chapterNumber,
+      name: chapter.name.replace(/\.md$/i, ''),
+      assigned: assigned.has(chapter.chapterNumber),
+    }));
+    res.json({
+      nextVolumeNumber: volumes.length ? Math.max(...volumes.map((item) => item.volumeNumber)) + 1 : 1,
+      volumes: volumes.map(({ volumeNumber, startChapter, endChapter, name }) => ({
+        volumeNumber,
+        startChapter,
+        endChapter,
+        name: name.replace(/\.md$/i, ''),
+        structured: Number.isInteger(startChapter) && Number.isInteger(endChapter),
+      })),
+      chapters,
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/volume-summary', async (req, res) => {
+  try {
+    const { book, volumeNumber, chapters = [] } = req.body || {};
+    requireExistingBook(book);
+    const volumes = getVolumes(book);
+    const expectedVolume = volumes.length ? Math.max(...volumes.map((item) => item.volumeNumber)) + 1 : 1;
+    const requestedVolume = Number(volumeNumber);
+    if (!Number.isInteger(requestedVolume) || requestedVolume !== expectedVolume) {
+      return res.status(400).json({ error: `卷号不正确，当前应总结第${expectedVolume}卷` });
+    }
+
+    const selected = chapters.map(Number);
+    if (!selected.length || selected.some((number) => !Number.isInteger(number) || number < 1)) {
+      return res.status(400).json({ error: '请至少选择一个有效章节' });
+    }
+    const unique = [...new Set(selected)];
+    if (unique.length !== selected.length) return res.status(400).json({ error: '章节选择存在重复' });
+    const sorted = [...unique].sort((a, b) => a - b);
+    if (selected.some((number, index) => number !== sorted[index])) {
+      return res.status(400).json({ error: '章节必须按章节号升序选择' });
+    }
+    for (let index = 1; index < sorted.length; index += 1) {
+      if (sorted[index] !== sorted[index - 1] + 1) {
+        return res.status(400).json({ error: '同一卷的章节必须连续' });
+      }
+    }
+    const overlaps = volumes.some((volume) => (
+      Number.isInteger(volume.startChapter) &&
+      Number.isInteger(volume.endChapter) &&
+      sorted.some((number) => number >= volume.startChapter && number <= volume.endChapter)
+    ));
+    if (overlaps) return res.status(400).json({ error: '所选章节已有归属卷，请重新选择' });
+
+    const available = new Map(getChapterSummaries(book).map((chapter) => [chapter.chapterNumber, chapter]));
+    const missing = sorted.filter((number) => !available.has(number));
+    if (missing.length) return res.status(400).json({ error: `缺少第${missing.join('、')}章的章节总结` });
+
+    const history = volumes.map((volume) => volume.content).join('\n\n---\n\n');
+    const current = sorted.map((number) => available.get(number).content).join('\n\n---\n\n');
+    const system = requirePrompt('volume-summary');
+    const summary = (await chat(system, [
+      `【当前书籍】\n${book}`,
+      `【当前卷号】\n第${requestedVolume}卷`,
+      `【历史分卷总结】\n${history || '（这是第一卷，暂无历史分卷总结）'}`,
+      `【本卷章节总结】\n${current}`,
+    ].join('\n\n'))).trim();
+    if (!summary) throw new Error('分卷总结结果为空');
+
+    const startChapter = sorted[0];
+    const endChapter = sorted[sorted.length - 1];
+    const title = `第${requestedVolume}卷：${startChapter}-${endChapter}`;
+    const volumePath = path.posix.join('plots', 'volumes', `${title}.md`);
+    fs.writeFileSync(
+      resolveBookPath(book, volumePath),
+      `# ${title}\n\n- 卷号：第${requestedVolume}卷\n- 章节范围：第${startChapter}章至第${endChapter}章\n\n${summary}\n`,
+      'utf8'
+    );
+    res.json({ summary, title, path: volumePath });
+  } catch (err) {
+    const status = /不正确|请选择|重复|连续|归属|缺少|不存在|非法/.test(err.message) ? 400 : 500;
+    res.status(status).json({ error: err.message });
   }
 });
 

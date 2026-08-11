@@ -7,6 +7,10 @@ const path = require('path');
 const config = require('./config');
 
 const app = express();
+
+// 启动时把旧版单书目录安全迁移为 RAG/example/，并迁移写作状态。
+require('./services/bookStorage').migrateLegacyStorage();
+
 app.use(express.json({ limit: '10mb' }));
 
 // 前端静态资源
