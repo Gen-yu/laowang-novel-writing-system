@@ -1,5 +1,5 @@
 # 小说辅助系统
-
+![alt text](image.png)
 一个采用纸质阅读风格的多书籍小说创作辅助系统，包含写作、RAG 资料管理、章节/分卷总结和 AI 生图。后端为 Node.js + Express，前端为原生 HTML/CSS/JavaScript，无构建步骤。
 
 ## 功能说明
